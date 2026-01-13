@@ -1,7 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import AccountCard from "@/components/account-card";
+import AddAccountModal from "@/components/add-account-modal";
+import EditAccountModal from "@/components/edit-account-modal";
+import DeleteAccountDialog from "@/components/delete-account-dialog";
+import { Button } from "@/components/ui/button";
 
 interface Account {
   id: string;
@@ -12,6 +17,7 @@ interface Account {
   currency: string;
   status: string;
   created_at: string;
+  updated_at: string;
 }
 
 interface ApiResponse {
@@ -21,50 +27,53 @@ interface ApiResponse {
   };
 }
 
+const fetchAccounts = async (): Promise<ApiResponse> => {
+  const response = await fetch(
+    `${process.env.NEXT_PUBLIC_API_URL}/api/accounts`
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch accounts");
+  }
+
+  return response.json();
+};
+
 export default function AccountsPage() {
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [total, setTotal] = useState(0);
-  const [limit, setLimit] = useState(50);
-  const [offset, setOffset] = useState(0);
-  const [customerIdFilter, setCustomerIdFilter] = useState("");
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  const [deletingAccount, setDeletingAccount] = useState<Account | null>(null);
+  const [typeFilter, setTypeFilter] = useState("");
 
-  useEffect(() => {
-    const fetchAccounts = async () => {
-      setLoading(true);
-      try {
-        const params = new URLSearchParams({
-          limit: limit.toString(),
-          offset: offset.toString(),
-        });
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ["accounts"],
+    queryFn: fetchAccounts,
+  });
 
-        if (customerIdFilter.trim()) {
-          params.append("customer_id", customerIdFilter.trim());
-        }
+  const accounts = data?.data.accounts ?? [];
+  const total = data?.data.total ?? 0;
 
-        const response = await fetch(
-          `https://v0-banking-system-backend-phi.vercel.app/api/accounts?${params}`,
-        );
+  // Client-side filtering
+  const filteredAccounts = useMemo(() => {
+    return accounts.filter((a) => {
+      return !typeFilter || a.account_type === typeFilter;
+    });
+  }, [accounts, typeFilter]);
 
-        if (!response.ok) {
-          throw new Error("Failed to fetch accounts");
-        }
+  const totalBalance = filteredAccounts.reduce(
+    (sum, account) => sum + account.balance,
+    0
+  );
 
-        const data: ApiResponse = await response.json();
-        setAccounts(data.data.accounts);
-        setTotal(data.data.total);
-        setLoading(false);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "An error occurred");
-        setLoading(false);
-      }
-    };
+  const handleEdit = (account: Account) => {
+    setEditingAccount(account);
+  };
 
-    fetchAccounts();
-  }, [limit, offset, customerIdFilter]);
+  const handleDelete = (account: Account) => {
+    setDeletingAccount(account);
+  };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="container mx-auto p-8">
         <h1 className="text-3xl font-bold mb-6">Accounts</h1>
@@ -77,136 +86,89 @@ export default function AccountsPage() {
     return (
       <div className="container mx-auto p-8">
         <h1 className="text-3xl font-bold mb-6">Accounts</h1>
-        <p className="text-red-500">Error: {error}</p>
+        <p className="text-red-500">Error: {error.message}</p>
+        <Button onClick={() => refetch()} className="mt-4">
+          Retry
+        </Button>
       </div>
     );
   }
 
-  const totalBalance = accounts.reduce(
-    (sum, account) => sum + account.balance,
-    0,
-  );
-  const currentPage = Math.floor(offset / limit) + 1;
-  const totalPages = Math.ceil(total / limit);
-
-  const handlePreviousPage = () => {
-    if (offset > 0) {
-      setOffset(Math.max(0, offset - limit));
-    }
-  };
-
-  const handleNextPage = () => {
-    if (offset + limit < total) {
-      setOffset(offset + limit);
-    }
-  };
-
-  const handleLimitChange = (newLimit: number) => {
-    setLimit(newLimit);
-    setOffset(0); // Reset to first page when changing limit
-  };
-
-  const handleCustomerIdFilterChange = (value: string) => {
-    setCustomerIdFilter(value);
-    setOffset(0); // Reset to first page when filtering
-  };
-
   return (
     <div className="container mx-auto p-8">
-      <h1 className="text-3xl font-bold mb-6">Accounts</h1>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">Accounts</h1>
+        <Button onClick={() => setIsAddModalOpen(true)}>
+          Add Account
+        </Button>
+      </div>
 
       <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-blue-50 dark:bg-gray-700 p-4 rounded-lg">
-          <h3 className="text-lg font-semibold">Total Accounts</h3>
-          <p className="text-3xl font-bold text-white">{total}</p>
+          <h3 className="text-xl font-semibold">Total Accounts</h3>
+          <p className="text-2xl font-bold">{filteredAccounts.length}</p>
+          {filteredAccounts.length !== total && (
+            <p className="text-sm text-muted-foreground">of {total} total</p>
+          )}
         </div>
         <div className="bg-green-50 dark:bg-gray-700 p-4 rounded-lg">
-          <h3 className="text-lg font-semibold">Page Balance</h3>
-          <p className="text-3xl font-bold text-white">
-            ${totalBalance.toFixed(2)}
-          </p>
+          <h3 className="text-xl font-semibold">Total Balance</h3>
+          <p className="text-2xl font-bold">${totalBalance.toFixed(2)}</p>
         </div>
       </div>
 
-      <div className="mb-6 flex flex-col lg:flex-row gap-4">
-        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center flex-1">
-          <div className="flex items-center gap-2">
-            <label
-              htmlFor="customer-filter"
-              className="text-sm font-medium whitespace-nowrap"
-            >
-              Customer ID:
+      <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+        <div className="flex flex-wrap gap-4 items-end">
+          <div className="flex-1 min-w-[200px] max-w-[300px]">
+            <label htmlFor="typeFilter" className="block text-sm font-medium mb-1">
+              Account Type
             </label>
-            <input
-              id="customer-filter"
-              type="text"
-              value={customerIdFilter}
-              onChange={(e) => handleCustomerIdFilterChange(e.target.value)}
-              placeholder="Filter by customer ID..."
-              className="px-3 py-2 border border-gray-300 rounded text-sm min-w-0 flex-1 sm:w-64"
-            />
+            <select
+              id="typeFilter"
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
+            >
+              <option value="">All Types</option>
+              <option value="checking">Checking</option>
+              <option value="savings">Savings</option>
+              <option value="business">Business</option>
+            </select>
           </div>
-
-          <p className="text-sm text-muted-foreground whitespace-nowrap">
-            Showing {accounts.length} of {total} accounts
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <label
-            htmlFor="limit"
-            className="text-sm font-medium whitespace-nowrap"
-          >
-            Per page:
-          </label>
-          <select
-            id="limit"
-            value={limit}
-            onChange={(e) => handleLimitChange(Number(e.target.value))}
-            className="px-2 py-1 border border-gray-300 rounded text-sm"
-          >
-            <option value={10}>10</option>
-            <option value={25}>25</option>
-            <option value={50}>50</option>
-            <option value={100}>100</option>
-          </select>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {accounts.map((account) => (
-          <AccountCard key={account.id} account={account} />
+        {filteredAccounts.map((account) => (
+          <AccountCard
+            key={account.id}
+            account={account}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+          />
         ))}
       </div>
 
-      {accounts.length === 0 && (
+      {filteredAccounts.length === 0 && (
         <p className="text-muted-foreground">No accounts found.</p>
       )}
 
-      {total > 0 && (
-        <div className="mt-6 flex flex-col sm:flex-row gap-4 justify-between items-center">
-          <p className="text-sm text-muted-foreground">
-            Page {currentPage} of {totalPages} ({total} total accounts)
-          </p>
+      <AddAccountModal
+        open={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+      />
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handlePreviousPage}
-              disabled={offset === 0}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Previous
-            </button>
-            <button
-              onClick={handleNextPage}
-              disabled={offset + limit >= total}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      )}
+      <EditAccountModal
+        open={!!editingAccount}
+        onClose={() => setEditingAccount(null)}
+        account={editingAccount}
+      />
+
+      <DeleteAccountDialog
+        open={!!deletingAccount}
+        onClose={() => setDeletingAccount(null)}
+        account={deletingAccount}
+      />
     </div>
   );
 }

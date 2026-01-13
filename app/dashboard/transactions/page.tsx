@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import TransactionCard from "@/components/transaction-card";
+import AddTransactionModal from "@/components/add-transaction-modal";
+import { Button } from "@/components/ui/button";
 
 interface Transaction {
   id: string;
@@ -22,55 +25,47 @@ interface ApiResponse {
   };
 }
 
+const fetchTransactions = async (): Promise<ApiResponse> => {
+  const response = await fetch(
+    `${process.env.NEXT_PUBLIC_API_URL}/api/transactions`
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch transactions");
+  }
+
+  return response.json();
+};
+
 export default function TransactionsPage() {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [total, setTotal] = useState(0);
-  const [limit, setLimit] = useState(50);
-  const [offset, setOffset] = useState(0);
-  const [accountIdFilter, setAccountIdFilter] = useState("");
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState("");
 
-  useEffect(() => {
-    const fetchTransactions = async () => {
-      setLoading(true);
-      try {
-        const params = new URLSearchParams({
-          limit: limit.toString(),
-          offset: offset.toString(),
-        });
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ["transactions"],
+    queryFn: fetchTransactions,
+  });
 
-        if (accountIdFilter.trim()) {
-          params.append("account_id", accountIdFilter.trim());
-        }
+  const transactions = data?.data.transactions ?? [];
+  const total = data?.data.total ?? 0;
 
-        if (typeFilter.trim()) {
-          params.append("type", typeFilter.trim());
-        }
+  // Client-side filtering
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter((t) => {
+      return !typeFilter || t.transaction_type === typeFilter;
+    });
+  }, [transactions, typeFilter]);
 
-        const response = await fetch(
-          `https://v0-banking-system-backend-phi.vercel.app/api/transactions?${params}`,
-        );
+  // Calculate totals from filtered transactions
+  const depositTotal = filteredTransactions
+    .filter((t) => t.transaction_type === "deposit")
+    .reduce((sum, t) => sum + t.amount, 0);
 
-        if (!response.ok) {
-          throw new Error("Failed to fetch transactions");
-        }
+  const withdrawalTotal = filteredTransactions
+    .filter((t) => t.transaction_type === "withdrawal" || t.transaction_type === "transfer" || t.transaction_type === "payment")
+    .reduce((sum, t) => sum + t.amount, 0);
 
-        const data: ApiResponse = await response.json();
-        setTransactions(data.data.transactions);
-        setTotal(data.data.total);
-        setLoading(false);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "An error occurred");
-        setLoading(false);
-      }
-    };
-
-    fetchTransactions();
-  }, [limit, offset, accountIdFilter, typeFilter]);
-
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="container mx-auto p-8">
         <h1 className="text-3xl font-bold mb-6">Transactions</h1>
@@ -83,143 +78,80 @@ export default function TransactionsPage() {
     return (
       <div className="container mx-auto p-8">
         <h1 className="text-3xl font-bold mb-6">Transactions</h1>
-        <p className="text-red-500">Error: {error}</p>
+        <p className="text-red-500">Error: {error.message}</p>
+        <Button onClick={() => refetch()} className="mt-4">
+          Retry
+        </Button>
       </div>
     );
   }
 
-  const currentPage = Math.floor(offset / limit) + 1;
-  const totalPages = Math.ceil(total / limit);
-
-  const handlePreviousPage = () => {
-    if (offset > 0) {
-      setOffset(Math.max(0, offset - limit));
-    }
-  };
-
-  const handleNextPage = () => {
-    if (offset + limit < total) {
-      setOffset(offset + limit);
-    }
-  };
-
-  const handleLimitChange = (newLimit: number) => {
-    setLimit(newLimit);
-    setOffset(0);
-  };
-
-  const handleAccountIdFilterChange = (value: string) => {
-    setAccountIdFilter(value);
-    setOffset(0);
-  };
-
-  const handleTypeFilterChange = (value: string) => {
-    setTypeFilter(value);
-    setOffset(0);
-  };
-
   return (
     <div className="container mx-auto p-8">
-      <h1 className="text-3xl font-bold mb-6">Transactions</h1>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">Transactions</h1>
+        <Button onClick={() => setIsModalOpen(true)}>
+          New Transaction
+        </Button>
+      </div>
 
-      <div className="mb-6 flex flex-col xl:flex-row gap-4">
-        <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center flex-1">
-          <div className="flex flex-col sm:flex-row gap-4 flex-1">
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <label
-                htmlFor="account-filter"
-                className="text-sm font-medium whitespace-nowrap"
-              >
-                Account ID:
-              </label>
-              <input
-                id="account-filter"
-                type="text"
-                value={accountIdFilter}
-                onChange={(e) => handleAccountIdFilterChange(e.target.value)}
-                placeholder="Filter by account ID..."
-                className="px-3 py-2 border border-gray-300 rounded text-sm min-w-0 flex-1"
-              />
-            </div>
-
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <label
-                htmlFor="type-filter"
-                className="text-sm font-medium whitespace-nowrap"
-              >
-                Type:
-              </label>
-              <input
-                id="type-filter"
-                type="text"
-                value={typeFilter}
-                onChange={(e) => handleTypeFilterChange(e.target.value)}
-                placeholder="Filter by type..."
-                className="px-3 py-2 border border-gray-300 rounded text-sm min-w-0 flex-1"
-              />
-            </div>
-          </div>
-
-          <p className="text-sm text-muted-foreground whitespace-nowrap">
-            Showing {transactions.length} of {total} transactions
-          </p>
+      <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-blue-50 dark:bg-gray-700 p-4 rounded-lg">
+          <h3 className="text-xl font-semibold">Total Transactions</h3>
+          <p className="text-2xl font-bold">{filteredTransactions.length}</p>
+          {filteredTransactions.length !== total && (
+            <p className="text-sm text-muted-foreground">of {total} total</p>
+          )}
         </div>
+        <div className="bg-green-50 dark:bg-gray-700 p-4 rounded-lg">
+          <h3 className="text-xl font-semibold">Total Deposits</h3>
+          <p className="text-2xl font-bold text-green-600">+${depositTotal.toFixed(2)}</p>
+        </div>
+        <div className="bg-red-50 dark:bg-gray-700 p-4 rounded-lg">
+          <h3 className="text-xl font-semibold">Total Outgoing</h3>
+          <p className="text-2xl font-bold text-red-600">-${withdrawalTotal.toFixed(2)}</p>
+        </div>
+      </div>
 
-        <div className="flex items-center gap-2">
-          <label
-            htmlFor="limit"
-            className="text-sm font-medium whitespace-nowrap"
-          >
-            Per page:
-          </label>
-          <select
-            id="limit"
-            value={limit}
-            onChange={(e) => handleLimitChange(Number(e.target.value))}
-            className="px-2 py-1 border border-gray-300 rounded text-sm"
-          >
-            <option value={10}>10</option>
-            <option value={25}>25</option>
-            <option value={50}>50</option>
-            <option value={100}>100</option>
-          </select>
+      <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+        <div className="flex flex-wrap gap-4 items-end">
+          <div className="flex-1 min-w-[200px] max-w-[300px]">
+            <label htmlFor="typeFilter" className="block text-sm font-medium mb-1">
+              Transaction Type
+            </label>
+            <select
+              id="typeFilter"
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
+            >
+              <option value="">All Types</option>
+              <option value="deposit">Deposit</option>
+              <option value="withdrawal">Withdrawal</option>
+              <option value="transfer">Transfer</option>
+              <option value="payment">Payment</option>
+            </select>
+          </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {transactions.map((transaction) => (
-          <TransactionCard key={transaction.id} transaction={transaction} />
+        {filteredTransactions.map((transaction) => (
+          <TransactionCard
+            key={transaction.id}
+            transaction={transaction}
+          />
         ))}
       </div>
 
-      {transactions.length === 0 && (
+      {filteredTransactions.length === 0 && (
         <p className="text-muted-foreground">No transactions found.</p>
       )}
 
-      {total > 0 && (
-        <div className="mt-6 flex flex-col sm:flex-row gap-4 justify-between items-center">
-          <p className="text-sm text-muted-foreground">
-            Page {currentPage} of {totalPages} ({total} total transactions)
-          </p>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handlePreviousPage}
-              disabled={offset === 0}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Previous
-            </button>
-            <button
-              onClick={handleNextPage}
-              disabled={offset + limit >= total}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      )}
+      <AddTransactionModal
+        open={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+      />
     </div>
   );
 }

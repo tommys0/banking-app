@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from "react";
 import CustomerCard from "@/components/customer-card";
+import AddCustomerModal from "@/components/add-customer-modal";
+import EditCustomerModal from "@/components/edit-customer-modal";
+import DeleteCustomerDialog from "@/components/delete-customer-dialog";
+import { Button } from "@/components/ui/button";
 
 interface Customer {
   id: string;
@@ -27,38 +31,34 @@ export default function CustomersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
-  const [limit, setLimit] = useState(50);
-  const [offset, setOffset] = useState(0);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [deletingCustomer, setDeletingCustomer] = useState<Customer | null>(null);
+
+  const fetchCustomers = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/customers`
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch customers");
+      }
+
+      const data: ApiResponse = await response.json();
+      setCustomers(data.data.customers);
+      setTotal(data.data.total);
+      setLoading(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An error occurred");
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchCustomers = async () => {
-      setLoading(true);
-      try {
-        const params = new URLSearchParams({
-          limit: limit.toString(),
-          offset: offset.toString(),
-        });
-
-        const response = await fetch(
-          `https://v0-banking-system-backend-phi.vercel.app/api/customers?${params}`
-        );
-
-        if (!response.ok) {
-          throw new Error("Failed to fetch customers");
-        }
-
-        const data: ApiResponse = await response.json();
-        setCustomers(data.data.customers);
-        setTotal(data.data.total);
-        setLoading(false);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "An error occurred");
-        setLoading(false);
-      }
-    };
-
     fetchCustomers();
-  }, [limit, offset]);
+  }, []);
 
   if (loading) {
     return (
@@ -78,56 +78,49 @@ export default function CustomersPage() {
     );
   }
 
-  const currentPage = Math.floor(offset / limit) + 1;
-  const totalPages = Math.ceil(total / limit);
-
-  const handlePreviousPage = () => {
-    if (offset > 0) {
-      setOffset(Math.max(0, offset - limit));
-    }
+  const handleCustomerAdded = () => {
+    fetchCustomers();
   };
 
-  const handleNextPage = () => {
-    if (offset + limit < total) {
-      setOffset(offset + limit);
-    }
+  const handleEdit = (customer: Customer) => {
+    setEditingCustomer(customer);
   };
 
-  const handleLimitChange = (newLimit: number) => {
-    setLimit(newLimit);
-    setOffset(0); // Reset to first page when changing limit
+  const handleDelete = (customer: Customer) => {
+    setDeletingCustomer(customer);
+  };
+
+  const handleEditSuccess = () => {
+    fetchCustomers();
+  };
+
+  const handleDeleteSuccess = () => {
+    fetchCustomers();
   };
 
   return (
     <div className="container mx-auto p-8">
-      <h1 className="text-3xl font-bold mb-6">Customers</h1>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">Customers</h1>
+        <Button onClick={() => setIsModalOpen(true)}>
+          Add Customer
+        </Button>
+      </div>
 
-      <div className="mb-4 flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
+      <div className="mb-4">
         <h2 className="text-xl font-semibold">
-          Total Customers: {total} | Showing {customers.length} customers
+          Total Customers: {total}
         </h2>
-
-        <div className="flex items-center gap-2">
-          <label htmlFor="limit" className="text-sm font-medium">
-            Per page:
-          </label>
-          <select
-            id="limit"
-            value={limit}
-            onChange={(e) => handleLimitChange(Number(e.target.value))}
-            className="px-2 py-1 border border-gray-300 rounded text-sm"
-          >
-            <option value={10}>10</option>
-            <option value={25}>25</option>
-            <option value={50}>50</option>
-            <option value={100}>100</option>
-          </select>
-        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {customers.map((customer) => (
-          <CustomerCard key={customer.id} customer={customer} />
+          <CustomerCard
+            key={customer.id}
+            customer={customer}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+          />
         ))}
       </div>
 
@@ -135,30 +128,25 @@ export default function CustomersPage() {
         <p className="text-muted-foreground">No customers found.</p>
       )}
 
-      {total > 0 && (
-        <div className="mt-6 flex flex-col sm:flex-row gap-4 justify-between items-center">
-          <p className="text-sm text-muted-foreground">
-            Page {currentPage} of {totalPages} ({total} total customers)
-          </p>
+      <AddCustomerModal
+        open={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSuccess={handleCustomerAdded}
+      />
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handlePreviousPage}
-              disabled={offset === 0}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Previous
-            </button>
-            <button
-              onClick={handleNextPage}
-              disabled={offset + limit >= total}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      )}
+      <EditCustomerModal
+        open={!!editingCustomer}
+        onClose={() => setEditingCustomer(null)}
+        onSuccess={handleEditSuccess}
+        customer={editingCustomer}
+      />
+
+      <DeleteCustomerDialog
+        open={!!deletingCustomer}
+        onClose={() => setDeletingCustomer(null)}
+        onSuccess={handleDeleteSuccess}
+        customer={deletingCustomer}
+      />
     </div>
   );
 }

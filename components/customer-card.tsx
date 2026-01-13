@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 
 interface Customer {
   id: string;
@@ -14,9 +15,11 @@ interface Customer {
 
 interface CustomerCardProps {
   customer: Customer;
+  onEdit?: (customer: Customer) => void;
+  onDelete?: (customer: Customer) => void;
 }
 
-export default function CustomerCard({ customer }: CustomerCardProps) {
+export default function CustomerCard({ customer, onEdit, onDelete }: CustomerCardProps) {
   return (
     <Card className="w-full">
       <CardHeader>
@@ -43,6 +46,30 @@ export default function CustomerCard({ customer }: CustomerCardProps) {
             <span className="ml-2">{new Date(customer.date_of_birth).toLocaleDateString()}</span>
           </div>
         </div>
+        {(onEdit || onDelete) && (
+          <div className="flex gap-2 mt-4">
+            {onEdit && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onEdit(customer)}
+                className="flex-1"
+              >
+                Edit
+              </Button>
+            )}
+            {onDelete && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => onDelete(customer)}
+                className="flex-1"
+              >
+                Delete
+              </Button>
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
